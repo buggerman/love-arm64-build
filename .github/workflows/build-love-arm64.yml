@@ -16,7 +16,35 @@ jobs:
 
       - name: Patch Dependencies for ARM64
         run: |
-          # 1. Patch libvorbis: force scalar fallback on ARM64
+          # 1. Disable all Intel SSE/AVX intrinsics in SDL2
+          Get-ChildItem -Path "megasource" -Recurse -Filter "SDL_intrin.h" | ForEach-Object {
+            $path = $_.FullName
+            $text = [System.IO.File]::ReadAllText($path)
+            if (-not $text.Contains("#define SDL_DISABLE_INTEL_INTRINSICS 1")) {
+              $text = "#define SDL_DISABLE_INTEL_INTRINSICS 1`r`n" + $text
+            }
+            [System.IO.File]::WriteAllText($path, $text)
+          }
+
+          # 2. Enable MSVC ARM64 atomics in SDL2
+          Get-ChildItem -Path "megasource" -Recurse -Include "SDL_atomic.c","SDL_spinlock.c" | ForEach-Object {
+            $path = $_.FullName
+            $text = [System.IO.File]::ReadAllText($path)
+            $text = $text.Replace('defined(_M_IX86) || defined(_M_X64)', 'defined(_M_IX86) || defined(_M_X64) || defined(_M_ARM64)')
+            [System.IO.File]::WriteAllText($path, $text)
+          }
+
+          # 3. Include <intrin.h> for SDL2 Interlocked intrinsics
+          Get-ChildItem -Path "megasource" -Recurse -Include "SDL_syssem.c","SDL_malloc.c" | ForEach-Object {
+            $path = $_.FullName
+            $text = [System.IO.File]::ReadAllText($path)
+            if (-not $text.Contains("#include <intrin.h>")) {
+              $text = "#include <intrin.h>`r`n" + $text
+            }
+            [System.IO.File]::WriteAllText($path, $text)
+          }
+
+          # 4. Patch libvorbis: force scalar fallback on ARM64
           Get-ChildItem -Path "megasource\libs" -Recurse -Filter "os.h" | ForEach-Object {
             $path = $_.FullName
             $text = [System.IO.File]::ReadAllText($path)
@@ -25,30 +53,12 @@ jobs:
             [System.IO.File]::WriteAllText($path, $text)
           }
 
-          # 2. Patch PhysFS: enforce Little Endian on ARM64
+          # 5. Patch PhysFS: enforce Little Endian on ARM64
           Get-ChildItem -Path "megasource" -Recurse -Filter "physfs_lzmasdk.h" | ForEach-Object {
             $path = $_.FullName
             $text = [System.IO.File]::ReadAllText($path)
             if (-not $text.Contains("#define MY_CPU_LE 1")) {
               $text = "#define MY_CPU_LE 1`r`n" + $text
-            }
-            [System.IO.File]::WriteAllText($path, $text)
-          }
-
-          # 3. Patch SDL2: enable MSVC ARM64 atomics specifically in atomic source files
-          Get-ChildItem -Path "megasource" -Recurse -Include "SDL_atomic.c","SDL_spinlock.c" | ForEach-Object {
-            $path = $_.FullName
-            $text = [System.IO.File]::ReadAllText($path)
-            $text = $text.Replace('defined(_M_IX86) || defined(_M_X64)', 'defined(_M_IX86) || defined(_M_X64) || defined(_M_ARM64)')
-            [System.IO.File]::WriteAllText($path, $text)
-          }
-
-          # 4. Patch SDL2 syssem/malloc: ensure <intrin.h> is included for Interlocked intrinsics
-          Get-ChildItem -Path "megasource" -Recurse -Include "SDL_syssem.c","SDL_malloc.c" | ForEach-Object {
-            $path = $_.FullName
-            $text = [System.IO.File]::ReadAllText($path)
-            if (-not $text.Contains("#include <intrin.h>")) {
-              $text = "#include <intrin.h>`r`n" + $text
             }
             [System.IO.File]::WriteAllText($path, $text)
           }
