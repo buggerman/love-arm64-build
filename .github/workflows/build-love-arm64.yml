@@ -17,7 +17,9 @@ jobs:
       - name: Patch libvorbis for ARM64
         run: |
           Get-ChildItem -Path "megasource\libs" -Recurse -Filter "os.h" | ForEach-Object {
-            (Get-Content $_.FullName) -replace 'defined\(_WIN64\)', 'defined(_M_X64)' | Set-Content $_.FullName
+            (Get-Content $_.FullName) `
+              -replace '!defined\(_WIN64\)', 'defined(_M_IX86)' `
+              -replace 'defined\(_WIN64\)', 'defined(_M_X64)' | Set-Content $_.FullName
           }
 
       - name: Configure CMake for ARM64
