@@ -14,12 +14,19 @@ jobs:
           cd megasource
           git clone --depth 1 --branch 11.4 https://github.com/love2d/love.git libs/love
 
-      - name: Patch libvorbis for ARM64
+      - name: Patch libvorbis and PhysFS for ARM64
         run: |
+          # 1. Patch libvorbis inline asm / intrinsic macros
           Get-ChildItem -Path "megasource\libs" -Recurse -Filter "os.h" | ForEach-Object {
             (Get-Content $_.FullName) `
               -replace '!defined\(_WIN64\)', 'defined(_M_IX86)' `
               -replace 'defined\(_WIN64\)', 'defined(_M_X64)' | Set-Content $_.FullName
+          }
+
+          # 2. Patch PhysFS LZMA SDK to enable Little Endian on ARM64
+          Get-ChildItem -Path "megasource" -Recurse -Filter "physfs_lzmasdk.h" | ForEach-Object {
+            $content = Get-Content $_.FullName -Raw
+            "#define MY_CPU_LE 1`n" + $content | Set-Content $_.FullName
           }
 
       - name: Configure CMake for ARM64
