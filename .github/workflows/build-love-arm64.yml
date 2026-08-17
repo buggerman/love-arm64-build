@@ -16,17 +16,7 @@ jobs:
 
       - name: Patch Dependencies for ARM64
         run: |
-          # 1. Strip all x86 Intel SIMD includes (*mmintrin.h) project-wide
-          Get-ChildItem -Path "megasource" -Recurse -Include "*.h","*.c","*.cpp" | ForEach-Object {
-            $path = $_.FullName
-            $text = [System.IO.File]::ReadAllText($path)
-            if ($text -match '#\s*include\s*<[a-z]*mmintrin\.h>') {
-              $text = [System.Text.RegularExpressions.Regex]::Replace($text, '#\s*include\s*<[a-z]*mmintrin\.h>', '/* disabled x86 SIMD on ARM64 */')
-              [System.IO.File]::WriteAllText($path, $text)
-            }
-          }
-
-          # 2. Patch libvorbis: force scalar fallback on ARM64
+          # 1. Patch libvorbis: force scalar fallback on ARM64
           Get-ChildItem -Path "megasource\libs" -Recurse -Filter "os.h" | ForEach-Object {
             $path = $_.FullName
             $text = [System.IO.File]::ReadAllText($path)
@@ -35,7 +25,7 @@ jobs:
             [System.IO.File]::WriteAllText($path, $text)
           }
 
-          # 3. Patch PhysFS: enforce Little Endian on ARM64
+          # 2. Patch PhysFS: enforce Little Endian on ARM64
           Get-ChildItem -Path "megasource" -Recurse -Filter "physfs_lzmasdk.h" | ForEach-Object {
             $path = $_.FullName
             $text = [System.IO.File]::ReadAllText($path)
@@ -45,26 +35,36 @@ jobs:
             [System.IO.File]::WriteAllText($path, $text)
           }
 
-          # 4. Patch SDL2: inject <intrin.h> and MSVC ARM64 intrinsic pragmas
-          $sdlIntrinsicsHeader = @"
-          #if defined(_MSC_VER)
-          #include <intrin.h>
-          #pragma intrinsic(_InterlockedCompareExchange)
-          #pragma intrinsic(_InterlockedCompareExchangePointer)
-          #pragma intrinsic(_InterlockedExchange)
-          #pragma intrinsic(_InterlockedExchangePointer)
-          #pragma intrinsic(_InterlockedExchangeAdd)
-          #pragma intrinsic(_InterlockedIncrement)
-          #pragma intrinsic(_InterlockedDecrement)
-          #endif
-          "@
-          Get-ChildItem -Path "megasource" -Recurse -Include "SDL_atomic.c","SDL_spinlock.c","SDL_syssem.c","SDL_malloc.c","SDL_atomic.h" | ForEach-Object {
+          # 3. Patch SDL2: Disable Intel intrinsics
+          Get-ChildItem -Path "megasource" -Recurse -Filter "SDL_intrin.h" | ForEach-Object {
             $path = $_.FullName
             $text = [System.IO.File]::ReadAllText($path)
-            $text = $text.Replace('defined(_M_IX86) || defined(_M_X64)', 'defined(_M_IX86) || defined(_M_X64) || defined(_M_ARM64)')
-            if (-not $text.Contains("#pragma intrinsic(_InterlockedCompareExchange)")) {
-              $text = $sdlIntrinsicsHeader + "`r`n" + $text
+            if (-not $text.Contains("#define SDL_DISABLE_INTEL_INTRINSICS 1")) {
+              $text = "#define SDL_DISABLE_INTEL_INTRINSICS 1`r`n" + $text
             }
+            [System.IO.File]::WriteAllText($path, $text)
+          }
+
+          # 4. Patch SDL2 atomics, spinlocks, semaphores, and memory allocators for MSVC ARM64
+          Get-ChildItem -Path "megasource" -Recurse -Include "SDL_atomic.c","SDL_spinlock.c","SDL_syssem.c","SDL_malloc.c" | ForEach-Object {
+            $path = $_.FullName
+            $text = [System.IO.File]::ReadAllText($path)
+            
+            # Enable MSVC intrinsics path on ARM64
+            $text = $text.Replace('defined(_M_IX86) || defined(_M_X64)', 'defined(_M_IX86) || defined(_M_X64) || defined(_M_ARM64)')
+            
+            # Map x86 pause to ARM64 yield
+            $text = $text.Replace('_mm_pause()', '__yield()')
+            
+            # Map acquire/release variants to standard MSVC ARM64 interlocked functions
+            $text = $text.Replace('_InterlockedExchange_acq', '_InterlockedExchange')
+            $text = $text.Replace('_InterlockedExchange_rel', '_InterlockedExchange')
+            
+            # Ensure <intrin.h> is included
+            if (-not $text.Contains("#include <intrin.h>")) {
+              $text = "#include <intrin.h>`r`n" + $text
+            }
+            
             [System.IO.File]::WriteAllText($path, $text)
           }
 
