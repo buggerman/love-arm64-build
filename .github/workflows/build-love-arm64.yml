@@ -51,17 +51,33 @@ jobs:
       - name: Build LÖVE Release Binaries
         working-directory: megasource
         run: |
-          cmake --build build --config Release -- /m "/flp:logfile=errors.log;errorsonly"
+          cmake --build build --config Release -- /m /clp:ErrorsOnly "/flp:logfile=errors.log;errorsonly"
+
+      - name: Print Targeted Errors (on failure)
+        if: failure()
+        working-directory: megasource
+        run: |
+          Write-Host "==================== BUILD ERRORS ====================" -ForegroundColor Red
+          $errorFile = Get-ChildItem -Path . -Filter "errors.log" -Recurse | Select-Object -First 1
+          if ($errorFile -and (Get-Item $errorFile.FullName).Length -gt 0) {
+            Get-Content $errorFile.FullName
+          } else {
+            # Fallback: scan all project logs for error signatures
+            Get-ChildItem -Path build -Filter "*.log" -Recurse | ForEach-Object {
+              Select-String -Path $_.FullName -Pattern ": error ", "fatal error", "FAILED:" | ForEach-Object {
+                $_.Line
+              }
+            }
+          }
+          Write-Host "======================================================" -ForegroundColor Red
 
       - name: Stage Artifacts
         working-directory: megasource
         run: |
           mkdir dist
-          # Copy all compiled executables (love.exe)
           Get-ChildItem -Path build -Filter "*.exe" -Recurse | ForEach-Object {
             Copy-Item $_.FullName dist\ -Force
           }
-          # Copy all runtime DLLs
           Get-ChildItem -Path build -Filter "*.dll" -Recurse | ForEach-Object {
             Copy-Item $_.FullName dist\ -Force
           }
