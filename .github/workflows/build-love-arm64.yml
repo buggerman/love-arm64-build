@@ -16,21 +16,24 @@ jobs:
 
       - name: Patch Dependencies for ARM64
         run: |
-          # 1. Patch libvorbis assembly/intrinsic guards (UTF-8 safe)
+          # 1. Patch libvorbis assembly/intrinsic guards
           Get-ChildItem -Path "megasource\libs" -Recurse -Filter "os.h" | ForEach-Object {
             $path = $_.FullName
             $text = [System.IO.File]::ReadAllText($path)
             $text = $text.Replace('!defined(_WIN64)', 'defined(_M_IX86)')
-            $text = $text.Replace('defined(_WIN64)', 'defined(_M_X64)')
+            $text = $text.Replace('defined(_WIN64)', '(defined(_M_X64) || defined(_M_ARM64))')
             [System.IO.File]::WriteAllText($path, $text)
           }
 
-          # 2. Patch PhysFS LZMA SDK to enforce Little Endian on ARM64 (UTF-8 safe)
+          # 2. Patch PhysFS LZMA SDK Little Endian detection for ARM64
           Get-ChildItem -Path "megasource" -Recurse -Filter "physfs_lzmasdk.h" | ForEach-Object {
             $path = $_.FullName
             $text = [System.IO.File]::ReadAllText($path)
-            $newText = "#ifndef MY_CPU_LE`n#define MY_CPU_LE 1`n#endif`n" + $text
-            [System.IO.File]::WriteAllText($path, $newText)
+            $text = $text.Replace('defined(_M_X64)', '(defined(_M_X64) || defined(_M_ARM64))')
+            if (-not $text.Contains("#define MY_CPU_LE 1")) {
+              $text = "#define MY_CPU_LE 1`r`n" + $text
+            }
+            [System.IO.File]::WriteAllText($path, $text)
           }
 
       - name: Configure CMake for ARM64
@@ -48,25 +51,24 @@ jobs:
       - name: Build LÖVE Release Binaries
         working-directory: megasource
         run: |
-          cmake --build build --config Release -- /m /clp:Summary /flp:logfile=errors.log;errorsonly
+          cmake --build build --config Release -- /m /flp:logfile=build\errors.log;errorsonly
 
       - name: Print Build Errors (if failed)
         if: failure()
         working-directory: megasource
         run: |
-          if (Test-Path "errors.log") {
-            Get-Content "errors.log"
+          Get-ChildItem -Path . -Filter "*.log" -Recurse | ForEach-Object {
+            Write-Host "=== Log: $($_.FullName) ==="
+            Get-Content $_.FullName
           }
 
       - name: Stage Artifacts
         working-directory: megasource
         run: |
           mkdir dist
-          # Copy love.exe and love.dll
           Get-ChildItem -Path build -Include "love.exe","love.dll" -Recurse | ForEach-Object {
             Copy-Item $_.FullName dist\ -Force
           }
-          # Copy all runtime dependency DLLs
           Get-ChildItem -Path build -Filter "*.dll" -Recurse | ForEach-Object {
             Copy-Item $_.FullName dist\ -Force
           }
