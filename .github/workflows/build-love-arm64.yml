@@ -5,7 +5,7 @@ on:
 
 jobs:
   build-arm64:
-    runs-on: windows-latest
+    runs-on: windows-2022
 
     steps:
       - name: Checkout megasource
@@ -16,10 +16,8 @@ jobs:
 
       - name: Configure CMake for ARM64
         working-directory: megasource
-        env:
-          CMAKE_POLICY_VERSION_MINIMUM: "3.5"
         run: |
-          cmake -G "Visual Studio 17 2022" -A ARM64 -S . -B build -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DLOVE_USE_SDL3=OFF
+          cmake -G "Visual Studio 17 2022" -A ARM64 -S . -B build -DLOVE_USE_SDL3=OFF
 
       - name: Build LÖVE Release Binaries
         working-directory: megasource
