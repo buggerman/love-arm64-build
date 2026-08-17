@@ -8,11 +8,17 @@ jobs:
     runs-on: windows-2022
 
     steps:
-      - name: Checkout megasource
+      - name: Checkout megasource & LÖVE
         run: |
           git clone --depth 1 --branch 11.4 https://github.com/love2d/megasource.git megasource
           cd megasource
           git clone --depth 1 --branch 11.4 https://github.com/love2d/love.git libs/love
+
+      - name: Patch libvorbis for ARM64
+        run: |
+          Get-ChildItem -Path "megasource\libs" -Recurse -Filter "os.h" | ForEach-Object {
+            (Get-Content $_.FullName) -replace 'defined\(_WIN64\)', 'defined(_M_X64)' | Set-Content $_.FullName
+          }
 
       - name: Configure CMake for ARM64
         working-directory: megasource
