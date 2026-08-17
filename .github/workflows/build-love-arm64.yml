@@ -16,35 +16,17 @@ jobs:
 
       - name: Patch Dependencies for ARM64
         run: |
-          # 1. Disable all Intel SSE/AVX intrinsics in SDL2
-          Get-ChildItem -Path "megasource" -Recurse -Filter "SDL_intrin.h" | ForEach-Object {
+          # 1. Strip all x86 Intel SIMD includes (*mmintrin.h) project-wide
+          Get-ChildItem -Path "megasource" -Recurse -Include "*.h","*.c","*.cpp" | ForEach-Object {
             $path = $_.FullName
             $text = [System.IO.File]::ReadAllText($path)
-            if (-not $text.Contains("#define SDL_DISABLE_INTEL_INTRINSICS 1")) {
-              $text = "#define SDL_DISABLE_INTEL_INTRINSICS 1`r`n" + $text
+            if ($text -match '#\s*include\s*<[a-z]*mmintrin\.h>') {
+              $text = [System.Text.RegularExpressions.Regex]::Replace($text, '#\s*include\s*<[a-z]*mmintrin\.h>', '/* disabled x86 SIMD on ARM64 */')
+              [System.IO.File]::WriteAllText($path, $text)
             }
-            [System.IO.File]::WriteAllText($path, $text)
           }
 
-          # 2. Enable MSVC ARM64 atomics in SDL2
-          Get-ChildItem -Path "megasource" -Recurse -Include "SDL_atomic.c","SDL_spinlock.c" | ForEach-Object {
-            $path = $_.FullName
-            $text = [System.IO.File]::ReadAllText($path)
-            $text = $text.Replace('defined(_M_IX86) || defined(_M_X64)', 'defined(_M_IX86) || defined(_M_X64) || defined(_M_ARM64)')
-            [System.IO.File]::WriteAllText($path, $text)
-          }
-
-          # 3. Include <intrin.h> for SDL2 Interlocked intrinsics
-          Get-ChildItem -Path "megasource" -Recurse -Include "SDL_syssem.c","SDL_malloc.c" | ForEach-Object {
-            $path = $_.FullName
-            $text = [System.IO.File]::ReadAllText($path)
-            if (-not $text.Contains("#include <intrin.h>")) {
-              $text = "#include <intrin.h>`r`n" + $text
-            }
-            [System.IO.File]::WriteAllText($path, $text)
-          }
-
-          # 4. Patch libvorbis: force scalar fallback on ARM64
+          # 2. Patch libvorbis: force scalar fallback on ARM64
           Get-ChildItem -Path "megasource\libs" -Recurse -Filter "os.h" | ForEach-Object {
             $path = $_.FullName
             $text = [System.IO.File]::ReadAllText($path)
@@ -53,12 +35,35 @@ jobs:
             [System.IO.File]::WriteAllText($path, $text)
           }
 
-          # 5. Patch PhysFS: enforce Little Endian on ARM64
+          # 3. Patch PhysFS: enforce Little Endian on ARM64
           Get-ChildItem -Path "megasource" -Recurse -Filter "physfs_lzmasdk.h" | ForEach-Object {
             $path = $_.FullName
             $text = [System.IO.File]::ReadAllText($path)
             if (-not $text.Contains("#define MY_CPU_LE 1")) {
               $text = "#define MY_CPU_LE 1`r`n" + $text
+            }
+            [System.IO.File]::WriteAllText($path, $text)
+          }
+
+          # 4. Patch SDL2: inject <intrin.h> and MSVC ARM64 intrinsic pragmas
+          $sdlIntrinsicsHeader = @"
+          #if defined(_MSC_VER)
+          #include <intrin.h>
+          #pragma intrinsic(_InterlockedCompareExchange)
+          #pragma intrinsic(_InterlockedCompareExchangePointer)
+          #pragma intrinsic(_InterlockedExchange)
+          #pragma intrinsic(_InterlockedExchangePointer)
+          #pragma intrinsic(_InterlockedExchangeAdd)
+          #pragma intrinsic(_InterlockedIncrement)
+          #pragma intrinsic(_InterlockedDecrement)
+          #endif
+          "@
+          Get-ChildItem -Path "megasource" -Recurse -Include "SDL_atomic.c","SDL_spinlock.c","SDL_syssem.c","SDL_malloc.c","SDL_atomic.h" | ForEach-Object {
+            $path = $_.FullName
+            $text = [System.IO.File]::ReadAllText($path)
+            $text = $text.Replace('defined(_M_IX86) || defined(_M_X64)', 'defined(_M_IX86) || defined(_M_X64) || defined(_M_ARM64)')
+            if (-not $text.Contains("#pragma intrinsic(_InterlockedCompareExchange)")) {
+              $text = $sdlIntrinsicsHeader + "`r`n" + $text
             }
             [System.IO.File]::WriteAllText($path, $text)
           }
