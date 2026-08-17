@@ -1,7 +1,7 @@
 name: Build LÖVE 11.4 ARM64
 
 on:
-  workflow_dispatch: # Allows manual trigger from the GitHub Actions tab
+  workflow_dispatch:
 
 jobs:
   build-arm64:
@@ -16,8 +16,10 @@ jobs:
 
       - name: Configure CMake for ARM64
         working-directory: megasource
+        env:
+          CMAKE_POLICY_VERSION_MINIMUM: "3.5"
         run: |
-          cmake -G "Visual Studio 17 2022" -A ARM64 -S . -B build -DLOVE_USE_SDL3=OFF
+          cmake -G "Visual Studio 17 2022" -A ARM64 -S . -B build -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DLOVE_USE_SDL3=OFF
 
       - name: Build LÖVE Release Binaries
         working-directory: megasource
@@ -28,10 +30,8 @@ jobs:
         working-directory: megasource
         run: |
           mkdir dist
-          # Copy love.exe and love.dll
           Copy-Item build\love\Release\love.exe dist\
           Copy-Item build\love\Release\love.dll dist\
-          # Copy dependency DLLs generated in build tree
           Get-ChildItem -Path build -Filter "*.dll" -Recurse | ForEach-Object {
             Copy-Item $_.FullName dist\ -Force
           }
