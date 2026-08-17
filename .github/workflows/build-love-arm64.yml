@@ -16,35 +16,57 @@ jobs:
 
       - name: Patch Dependencies for ARM64
         run: |
-          # 1. Patch libvorbis assembly/intrinsic guards
+          # 1. Patch libvorbis assembly/intrinsic guards (UTF-8 safe)
           Get-ChildItem -Path "megasource\libs" -Recurse -Filter "os.h" | ForEach-Object {
-            (Get-Content $_.FullName) `
-              -replace '!defined\(_WIN64\)', 'defined(_M_IX86)' `
-              -replace 'defined\(_WIN64\)', 'defined(_M_X64)' | Set-Content $_.FullName
+            $path = $_.FullName
+            $text = [System.IO.File]::ReadAllText($path)
+            $text = $text.Replace('!defined(_WIN64)', 'defined(_M_IX86)')
+            $text = $text.Replace('defined(_WIN64)', 'defined(_M_X64)')
+            [System.IO.File]::WriteAllText($path, $text)
           }
 
-          # 2. Patch PhysFS LZMA SDK to enforce Little Endian on ARM64
+          # 2. Patch PhysFS LZMA SDK to enforce Little Endian on ARM64 (UTF-8 safe)
           Get-ChildItem -Path "megasource" -Recurse -Filter "physfs_lzmasdk.h" | ForEach-Object {
-            $content = Get-Content $_.FullName -Raw
-            "#define MY_CPU_LE 1`n" + $content | Set-Content $_.FullName
+            $path = $_.FullName
+            $text = [System.IO.File]::ReadAllText($path)
+            $newText = "#ifndef MY_CPU_LE`n#define MY_CPU_LE 1`n#endif`n" + $text
+            [System.IO.File]::WriteAllText($path, $newText)
           }
 
       - name: Configure CMake for ARM64
         working-directory: megasource
         run: |
-          cmake -G "Visual Studio 17 2022" -A ARM64 -S . -B build -DLOVE_USE_SDL3=OFF -DLOVE_JIT=OFF
+          cmake -G "Visual Studio 17 2022" -A ARM64 -S . -B build `
+            -DLOVE_USE_SDL3=OFF `
+            -DLOVE_JIT=OFF `
+            -DALSOFT_CPUEXT_NEON=OFF `
+            -DALSOFT_CPUEXT_SSE=OFF `
+            -DALSOFT_CPUEXT_SSE2=OFF `
+            -DALSOFT_CPUEXT_SSE3=OFF `
+            -DALSOFT_CPUEXT_SSE4_1=OFF
 
       - name: Build LÖVE Release Binaries
         working-directory: megasource
         run: |
-          cmake --build build --config Release --target love/love
+          cmake --build build --config Release -- /m /clp:Summary /flp:logfile=errors.log;errorsonly
+
+      - name: Print Build Errors (if failed)
+        if: failure()
+        working-directory: megasource
+        run: |
+          if (Test-Path "errors.log") {
+            Get-Content "errors.log"
+          }
 
       - name: Stage Artifacts
         working-directory: megasource
         run: |
           mkdir dist
-          Copy-Item build\love\Release\love.exe dist\
-          Copy-Item build\love\Release\love.dll dist\
+          # Copy love.exe and love.dll
+          Get-ChildItem -Path build -Include "love.exe","love.dll" -Recurse | ForEach-Object {
+            Copy-Item $_.FullName dist\ -Force
+          }
+          # Copy all runtime dependency DLLs
           Get-ChildItem -Path build -Filter "*.dll" -Recurse | ForEach-Object {
             Copy-Item $_.FullName dist\ -Force
           }
