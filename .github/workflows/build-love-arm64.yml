@@ -16,7 +16,7 @@ jobs:
 
       - name: Patch Dependencies for ARM64
         run: |
-          # 1. Patch libvorbis to avoid x86 SSE2 / asm on ARM64
+          # 1. Patch libvorbis: force scalar fallback on ARM64
           Get-ChildItem -Path "megasource\libs" -Recurse -Filter "os.h" | ForEach-Object {
             $path = $_.FullName
             $text = [System.IO.File]::ReadAllText($path)
@@ -25,7 +25,7 @@ jobs:
             [System.IO.File]::WriteAllText($path, $text)
           }
 
-          # 2. Patch PhysFS LZMA SDK Little Endian detection
+          # 2. Patch PhysFS: enforce Little Endian on ARM64
           Get-ChildItem -Path "megasource" -Recurse -Filter "physfs_lzmasdk.h" | ForEach-Object {
             $path = $_.FullName
             $text = [System.IO.File]::ReadAllText($path)
@@ -35,12 +35,18 @@ jobs:
             [System.IO.File]::WriteAllText($path, $text)
           }
 
-          # 3. Patch SDL2 to enable MSVC ARM64 atomics & intrinsics
-          Get-ChildItem -Path "megasource" -Recurse -Include "SDL_atomic.c","SDL_spinlock.c","SDL_syssem.c","SDL_malloc.c","SDL_atomic.h" | ForEach-Object {
+          # 3. Patch SDL2: enable MSVC ARM64 atomics specifically in atomic source files
+          Get-ChildItem -Path "megasource" -Recurse -Include "SDL_atomic.c","SDL_spinlock.c" | ForEach-Object {
             $path = $_.FullName
             $text = [System.IO.File]::ReadAllText($path)
-            $text = $text.Replace('defined(_M_X64)', '(defined(_M_X64) || defined(_M_ARM64))')
-            $text = $text.Replace('defined(_M_ARM)', '(defined(_M_ARM) || defined(_M_ARM64))')
+            $text = $text.Replace('defined(_M_IX86) || defined(_M_X64)', 'defined(_M_IX86) || defined(_M_X64) || defined(_M_ARM64)')
+            [System.IO.File]::WriteAllText($path, $text)
+          }
+
+          # 4. Patch SDL2 syssem/malloc: ensure <intrin.h> is included for Interlocked intrinsics
+          Get-ChildItem -Path "megasource" -Recurse -Include "SDL_syssem.c","SDL_malloc.c" | ForEach-Object {
+            $path = $_.FullName
+            $text = [System.IO.File]::ReadAllText($path)
             if (-not $text.Contains("#include <intrin.h>")) {
               $text = "#include <intrin.h>`r`n" + $text
             }
@@ -53,6 +59,14 @@ jobs:
           cmake -G "Visual Studio 17 2022" -A ARM64 -S . -B build `
             -DLOVE_USE_SDL3=OFF `
             -DLOVE_JIT=OFF `
+            -DSDL_MMX=OFF `
+            -DSDL_3DNOW=OFF `
+            -DSDL_SSE=OFF `
+            -DSDL_SSE2=OFF `
+            -DSDL_SSE3=OFF `
+            -DSDL_AVX=OFF `
+            -DSDL_AVX2=OFF `
+            -DSDL_AVX512F=OFF `
             -DALSOFT_CPUEXT_NEON=OFF `
             -DALSOFT_CPUEXT_SSE=OFF `
             -DALSOFT_CPUEXT_SSE2=OFF `
